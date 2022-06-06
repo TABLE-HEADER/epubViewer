@@ -1,0 +1,306 @@
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<title>EPUBデータの読み出し</title>
+		<style type="text/css">
+			.whole {
+				display: flex;
+				flex-flow: column;
+				flex-wrap: nowrap;
+				justify-content: center;
+			}
+			.viewer{
+				display: flex;
+				height: calc(95vh - 80px);
+				flex-wrap: nowrap;
+			}
+			.mainbox {
+				width: 90vw;
+				padding: 10px;
+				border-top: 3px solid black;
+				overflow-y: scroll;
+			}
+			.sidebox {
+				background-color: #404040;
+				width: 5vw;
+				padding: 10px;
+				border: 3px solid black;
+				border-bottom: none;
+			}
+			.page_control {
+				justify-content: center;
+				align-items: center;
+				background-color: grey;
+				border: 3px solid black;
+				text-align:center;
+				height: 20px;
+				padding:10px 0;
+			}
+			.file {
+				justify-content: center;
+				align-items: center;
+				background-color: grey;
+				border: 3px solid black;
+				border-top: none;
+				text-align:center;
+				padding:10px 0;
+			}
+			.page_left:hover, .page_right:hover, .page_leftend:hover, .page_rightend:hover {
+				cursor: pointer;
+			}
+		</style>
+		<script type="text/javascript" src="js/zip.js" charset="utf-8"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+		<script type="text/javascript">
+
+		/*
+		 * EPUBファイルの読み取りにはこちらのスクリプトを利用しています。
+		 *
+		 * zip.js
+		 * https://gildas-lormeau.github.io/zip.js/
+		*/
+
+			$(function(){
+
+				var textdata = [];
+				var cssdata = {};
+				var open_dir = 1;
+				var page_ref = 1;
+
+				// 「EPUB表示」クリックで起動
+				$("#viewEPUB").click(async function(){
+
+					if($("#myFile")[0] != null && $("#myFile")[0].files[0] != null) {
+
+						// HTMLのファイルインプットから読み取り
+						var fileData = $("#myFile")[0].files[0];
+
+						//
+						if(fileData.name.endsWith(".epub")){
+
+							// ファイルからEPUBをZipReaderで読み込むためのBlobReaderを作成
+							const reader = new zip.ZipReader(new zip.BlobReader(fileData));
+
+							// EPUB内のエントリを取得
+							const entries = await reader.getEntries();
+
+							// エントリが存在するなら
+							if (entries.length) {
+
+								// エントリをファイルの種類ごとにオブジェクトに格納
+								textdata = [];
+								for(var i = 0; i < entries.length; i++) {
+
+									var fname = entries[i].filename;
+									var text;
+
+									// XHTMLファイルの場合、書籍として準備
+									if(fname.endsWith(".xhtml")) {
+
+										// get first entry content as text by using a TextWriter
+										text = await entries[i].getData(
+											// writer
+											new zip.TextWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													 // onprogress callback
+												}
+											}
+										);
+										// text contains the entry data as a String
+										// $("#result").append(text);
+										textdata.push(text);
+									}
+
+									// CSSファイルの場合
+									else if(fname.endsWith(".css")) {
+										// get first entry content as text by using a TextWriter
+										text = await entries[i].getData(
+											// writer
+											new zip.TextWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													 // onprogress callback
+												}
+											}
+										);
+
+										// とりあえずパスではなく直近のファイル名のみ取得
+										fname = fname.replace(/.*\/(.+?\.css).*/, "$1");
+										cssdata[fname] = text;
+									}
+
+								}
+
+								// 表示のとき、cssの参照を書き換え
+								for(var i = 0; i < textdata.length; i++){
+
+									while(textdata[i].match(/<link rel=.*?href=.*?\/([^\/]+?\.css).*?>/g) != null) {
+										textdata[i] = textdata[i].replace(/<link rel=.*?href=.*?\/([^\/]+?\.css).*?>/, function(all, arg){
+											if(cssdata[arg] != null){
+												return "<style type=\"text/css\">" + cssdata[arg] + "</style>";
+											}
+											else{
+												return "";
+											}
+										});
+
+									}
+
+								}
+
+								if(textdata != null){
+									$(".mainbox").removeAttr("style");
+									$(".mainbox").html(textdata[0]);
+									$(".sidebox_left").addClass("page_left");
+									$(".sidebox_right").addClass("page_right");
+
+									// page_controlを追加
+									$(".page_control").html(
+											"<span></span>"
+											+ "<span class=\"page_leftend\"><font color=\"white\">＜＜</font></span>&emsp;"
+											+ "<span class=\"page_left\"><font color=\"white\">＜</font></span>&emsp;"
+											+ "<span><input type=\"number\" id=\"page\" value=\"1\" min=\"1\" max=\"" + textdata.length + "\" step=\"1\">/" + textdata.length + "ページ</span>"
+											+ "&emsp;<span class=\"page_right\"><font color=\"white\">＞</font></span>"
+											+ "&emsp;<span class=\"page_rightend\"><font color=\"white\">＞＞</font></span>"
+											+ "&emsp;<span><input type=\"checkbox\" id=\"open_dir\">右開き</span>"
+									);
+								}
+								else {
+									alert("表示可能なページがありません。");
+								}
+
+							}
+
+							// ZipReaderのクローズ
+							await reader.close();
+
+						}
+						else {
+							alert(".epub形式のファイルを選択してください。");
+						}
+
+					}
+					else {
+						alert("ファイルが存在しません。");
+					}
+
+				});
+
+				// ページ操作
+				function changePage() {
+
+					const page = $("#page").val();
+					if(page != ""){
+						if(0 < page && page <= textdata.length){
+							// 表示テキストの書き換え
+							page_ref = page;
+							$(".mainbox").html(textdata[page - 1]);
+						}
+						else{
+							alert("無効なページ番号です。");
+							$("#page").val(page_ref);
+						}
+					}
+
+				}
+
+				// ページ番号変更によるページ操作
+				$(document).on('input', '#page', function(e) {
+					changePage();
+				});
+
+				// ページの左右めくりによるページ操作
+				function changePageLeft() {
+					var next_page = parseInt($("#page").val()) - parseInt(open_dir);
+					if(0 < next_page && next_page <= textdata.length){
+						$("#page").val(next_page);
+						changePage();
+					}
+				}
+				function changePageRight() {
+					var next_page = parseInt($("#page").val()) + parseInt(open_dir);
+					if(0 < next_page && next_page <= textdata.length){
+						$("#page").val(next_page);
+						changePage();
+					}
+				}
+				$(document).on('click', '.page_left', function(e) {
+					changePageLeft();
+				});
+				$(document).on('click', '.page_right', function(e) {
+					changePageRight();
+				});
+
+				// キーボードによる左右めくり
+				$(document).on('keydown', function(e){
+					switch(e.key) {
+					case 'ArrowRight':
+						changePageRight();
+						break;
+					case 'ArrowLeft':
+						changePageLeft();
+						break;
+					}
+				});
+
+				// 端ページまで移動
+				$(document).on('click', '.page_leftend', function(e) {
+					var next_page;
+					if(open_dir == 1){
+						next_page = 1;
+					}
+					else{
+						next_page = textdata.length;
+					}
+					$("#page").val(next_page);
+					changePage();
+				});
+				$(document).on('click', '.page_rightend', function(e) {
+					var next_page;
+					if(open_dir == 1){
+						next_page = textdata.length;
+					}
+					else{
+						next_page = 1;
+					}
+					$("#page").val(next_page);
+					changePage();
+				});
+
+				// 右開きチェックボックス
+				$(document).on('change', '#open_dir', function(e) {
+
+					if($(this).prop('checked')){
+						open_dir = -1;
+					}
+					else{
+						open_dir = 1;
+					}
+
+				});
+
+			});
+		</script>
+	</head>
+	<body>
+		<div class="whole">
+			<div class="viewer">
+				<div class="sidebox sidebox_left"></div>
+				<div class="mainbox" style="background-color:Gainsboro">書籍データが未入力です。</div>
+				<div class="sidebox sidebox_right"></div>
+			</div>
+			<div class="page_control">
+				&emsp;
+			</div>
+			<div class="file">
+				<form action="./test.cgi" method="get" style="margin:0px;">
+					<input type="file" id="myFile" />
+					<input type="button" id="viewEPUB" value="EPUB表示" />
+				</form>
+			</div>
+		</div>
+	</body>
+</html>
