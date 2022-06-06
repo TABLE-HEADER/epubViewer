@@ -18,7 +18,7 @@
 				width: 90vw;
 				padding: 10px;
 				border-top: 3px solid black;
-				overflow-y: scroll;
+				overflow-y: auto;
 			}
 			.sidebox {
 				background-color: #404040;
@@ -48,6 +48,11 @@
 			.page_left:hover, .page_right:hover, .page_leftend:hover, .page_rightend:hover {
 				cursor: pointer;
 			}
+			.mainbox img {
+				max-width: 100%;
+				max-height: 100%;
+				object-fit: contain;
+			}
 		</style>
 		<script type="text/javascript" src="js/zip.js" charset="utf-8"></script>
 		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
@@ -60,12 +65,48 @@
 		 * https://gildas-lormeau.github.io/zip.js/
 		*/
 
-			$(function(){
+		var textdata = [];
+		var textname = [];
+		var cssdata = {};
+		var imgdata = {};
+		var open_dir = 1;
+		var page_ref = 1;
 
-				var textdata = [];
-				var cssdata = {};
-				var open_dir = 1;
-				var page_ref = 1;
+		// ページ操作
+		function changePage() {
+
+			const page = $("#page").val();
+			if(page != ""){
+				if(0 < page && page <= textdata.length){
+					// 表示テキストの書き換え
+					page_ref = page;
+					$(".mainbox").html(textdata[page - 1]);
+				}
+				else{
+					alert("無効なページ番号です。");
+					$("#page").val(page_ref);
+				}
+			}
+
+		}
+
+		// ページの左右めくりによるページ操作
+		function changePageLeft() {
+			var next_page = parseInt($("#page").val()) - parseInt(open_dir);
+			if(0 < next_page && next_page <= textdata.length){
+				$("#page").val(next_page);
+				changePage();
+			}
+		}
+		function changePageRight() {
+			var next_page = parseInt($("#page").val()) + parseInt(open_dir);
+			if(0 < next_page && next_page <= textdata.length){
+				$("#page").val(next_page);
+				changePage();
+			}
+		}
+
+			$(function(){
 
 				// 「EPUB表示」クリックで起動
 				$("#viewEPUB").click(async function(){
@@ -87,6 +128,13 @@
 							// エントリが存在するなら
 							if (entries.length) {
 
+								textdata = [];
+								textname = [];
+								cssdata = {};
+								imgdata = {};
+								open_dir = 1;
+								page_ref = 1;
+
 								// エントリをファイルの種類ごとにオブジェクトに格納
 								textdata = [];
 								for(var i = 0; i < entries.length; i++) {
@@ -95,7 +143,7 @@
 									var text;
 
 									// XHTMLファイルの場合、書籍として準備
-									if(fname.endsWith(".xhtml")) {
+									if(fname.match(/^(.*\.(xhtml|html))$/)) {
 
 										// get first entry content as text by using a TextWriter
 										text = await entries[i].getData(
@@ -110,7 +158,9 @@
 										);
 										// text contains the entry data as a String
 										// $("#result").append(text);
+										fname = fname.replace(/.*\/(.+?\.(xhtml|html)).*/, "$1");
 										textdata.push(text);
+										textname.push(fname);
 									}
 
 									// CSSファイルの場合
@@ -127,26 +177,115 @@
 											}
 										);
 
+										// CSS内コメントアウトをhtmlに統一
+										text = text.replace(/\/\*/g,"<!--").replace(/\*\//g,"-->");
+
 										// とりあえずパスではなく直近のファイル名のみ取得
 										fname = fname.replace(/.*\/(.+?\.css).*/, "$1");
-										cssdata[fname] = text;
+										if(fname != "style-check.css"){
+											cssdata[fname] = text;
+										}
+
 									}
+
+									// 画像ファイルの場合。Data64URI形式に変換
+									else if(fname.match(/^(.*\.(jpg|jpeg|png|bmp))$/)) {
+										// get first entry content as text by using a TextWriter
+										text = await entries[i].getData(
+											// writer
+											new zip.Data64URIWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													// onprogress callback
+												}
+											}
+										);
+
+										fname = fname.replace(/.*\/(.+?\.(jpg|jpeg|png|bmp)).*/, "$1");
+										imgdata[fname] = text;
+
+									}
+
 
 								}
 
 								// 表示のとき、cssの参照を書き換え
 								for(var i = 0; i < textdata.length; i++){
 
-									while(textdata[i].match(/<link rel=.*?href=.*?\/([^\/]+?\.css).*?>/g) != null) {
-										textdata[i] = textdata[i].replace(/<link rel=.*?href=.*?\/([^\/]+?\.css).*?>/, function(all, arg){
+									while(textdata[i].match(/<link .*?href=.*?[\/\"]([^\/]+?\.css).*?>/g) != null) {
+										textdata[i] = textdata[i].replace(/<link .*?href=.*?[\/\"]([^\/]+?\.css).*?>/, function(all, arg){
 											if(cssdata[arg] != null){
-												return "<style type=\"text/css\">" + cssdata[arg] + "</style>";
+												return "<style type=\"text/css\">\n" + cssdata[arg] + "</style>";
 											}
 											else{
 												return "";
 											}
 										});
 
+									}
+
+								}
+
+								for(var i = 0; i < textdata.length; i++){
+
+									while(textdata[i].match(/<style type=\"text\/css\">([\s\S]*?)@import .*?[\/\"]([^\/]+?\.css).*?;/gm) != null) {
+										textdata[i] = textdata[i].replace(/<style type=\"text\/css\">([\s\S]*?)@import .*?[\/\"]([^\/]+?\.css)(.*?);/gm, function(all, arg1, arg2){
+											if(cssdata[arg2] != null){
+												return "<style type=\"text/css\">" + cssdata[arg2] + "</style>\n<style type=\"text/css\">" + arg1;
+											}
+											else{
+												return "</style>\n<style type=\"text/css\">" + arg1;
+											}
+										});
+
+									}
+
+								}
+
+
+								// 表示のとき、画像の参照を書き換え
+								for(var i = 0; i < textdata.length; i++){
+
+									while(textdata[i].match(/<img .*?src=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp)).*?>/g) != null) {
+										textdata[i] = textdata[i].replace(/(<img .*?)src=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp))(.*?>)/, function(all, arg1, arg2, arg3, arg4){
+											if(imgdata[arg2] != null){
+												return arg1 + "src=\"" + imgdata[arg2] + arg4;
+											}
+											else{
+												return "";
+											}
+										});
+									}
+
+									while(textdata[i].match(/<image .*?xlink:href=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp)).*?>/g) != null) {
+										textdata[i] = textdata[i].replace(/(<image .*?)xlink:href=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp))(.*?>)/, function(all, arg1, arg2, arg3, arg4){
+											if(imgdata[arg2] != null){
+												return arg1 + "xlink:href=\"" + imgdata[arg2] + arg4;
+											}
+											else{
+												return "";
+											}
+										});
+									}
+
+								}
+
+								// リンクの書き換え
+								for(var i = 0; i < textdata.length; i++){
+
+									while(textdata[i].match(/<a ((?!onclick).)*?href=((?!onclick).)*?[\/\"]([^\/]+?\.(xhtml|html))((?!onclick).)*?>[(?!onclick)\s\S]*?<\/a>/g) != null) {
+										textdata[i] = textdata[i].replace(/(<a ((?!onclick).)*?href=((?!onclick).)*?[\/\"])([^\/]+?\.(xhtml|html))((?!onclick).)*?\"(((?!onclick).)*?>[(?!onclick)\s\S]*?<\/a>)/,
+												function(all, arg1, arg2, arg3, arg4, arg5, arg6, arg7){
+											const pagenum = textname.indexOf(arg4);
+											console.log(arg1,arg4,arg7);
+											if(pagenum >= 0){
+												return arg1 + "javascript:void(0);\" onclick=\"\$(\'#page\').val(" + (pagenum + 1) + "); changePage(); return false;\"" + arg7;
+											}
+											else{
+												return "";
+											}
+										});
 									}
 
 								}
@@ -189,44 +328,12 @@
 
 				});
 
-				// ページ操作
-				function changePage() {
-
-					const page = $("#page").val();
-					if(page != ""){
-						if(0 < page && page <= textdata.length){
-							// 表示テキストの書き換え
-							page_ref = page;
-							$(".mainbox").html(textdata[page - 1]);
-						}
-						else{
-							alert("無効なページ番号です。");
-							$("#page").val(page_ref);
-						}
-					}
-
-				}
-
 				// ページ番号変更によるページ操作
 				$(document).on('input', '#page', function(e) {
 					changePage();
 				});
 
-				// ページの左右めくりによるページ操作
-				function changePageLeft() {
-					var next_page = parseInt($("#page").val()) - parseInt(open_dir);
-					if(0 < next_page && next_page <= textdata.length){
-						$("#page").val(next_page);
-						changePage();
-					}
-				}
-				function changePageRight() {
-					var next_page = parseInt($("#page").val()) + parseInt(open_dir);
-					if(0 < next_page && next_page <= textdata.length){
-						$("#page").val(next_page);
-						changePage();
-					}
-				}
+				// ページの左右クリックによるページ操作
 				$(document).on('click', '.page_left', function(e) {
 					changePageLeft();
 				});
@@ -297,7 +404,7 @@
 			</div>
 			<div class="file">
 				<form action="./test.cgi" method="get" style="margin:0px;">
-					<input type="file" id="myFile" />
+					<input type="file" id="myFile" accept=".epub"/>
 					<input type="button" id="viewEPUB" value="EPUB表示" />
 				</form>
 			</div>
