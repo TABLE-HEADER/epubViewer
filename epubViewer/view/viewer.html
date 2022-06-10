@@ -1,0 +1,333 @@
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<title>Viewer</title>
+		<style type="text/css">
+			.whole {
+				display: flex;
+				flex-flow: column;
+				flex-wrap: nowrap;
+				justify-content: center;
+			}
+			.viewer{
+				display: flex;
+				height: calc(95vh - 40px);
+				flex-wrap: nowrap;
+			}
+			.mainbox {
+				width: 90vw;
+				padding: 35px 30px 25px;
+				border-top: 3px solid black;
+				overflow-y: auto;
+				overflow-wrap: normal;
+			}
+			.maintext{
+				overflow-wrap: anywhere;
+			}
+			.sidebox {
+				background-color: #404040;
+				width: 5vw;
+				padding: 10px;
+				border: 3px solid black;
+				border-bottom: none;
+			}
+			.page_control {
+				justify-content: center;
+				align-items: center;
+				background-color: grey;
+				border: 3px solid black;
+				text-align:center;
+				height: 20px;
+				padding:10px 0;
+			}
+			.page_control:hover {
+				cursor: default;
+			}
+			.page_left:hover, .page_right:hover, .page_leftend:hover, .page_rightend:hover {
+				cursor: pointer;
+			}
+			.mainbox img {
+				max-width: 100%;
+				max-height: 100%;
+				object-fit: contain;
+			}
+			/*
+			.load {
+				background-color: yellow;
+				border: 2px solid black;
+				width: 150px;
+				height: 100px;
+				text-align:center;
+				position: absolute;
+				margin: auto;
+				justify-content: center;
+				top: 20px;
+				right: 0;
+				left: 0;
+				display: table;
+			}
+			.load > span{
+				display: table-cell;
+				vertical-align: middle;
+			}
+			*/
+			.header{
+				width: 100vw;
+				height: 100px;
+				margin: 0;
+				vertical-align: center;
+				text-align: left;
+				opacity: 0.95;
+				top: -100px;
+				left: 0;
+				background: #ffcc99;
+				position: fixed;
+			}
+			.header td{
+				text-align: center;
+			}
+		</style>
+		<script type="text/javascript" src="../js/zip.js" charset="utf-8"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+		<script type="text/javascript">
+
+		/*
+		 * EPUBファイルの読み取りにはこちらのスクリプトを利用しています。
+		 *
+		 * zip.js
+		 * https://gildas-lormeau.github.io/zip.js/
+		*/
+
+		var disp_book = {};
+		var pagedata = [];
+		var open_dir = 1;
+		var page_ref = 1;
+
+		// ページ操作
+		function changePage() {
+
+			const page = $("#page").val();
+			// ロード表示
+			if(page != ""){
+				if(0 < page && page <= pagedata.length){
+
+					// 表示テキストの書き換え
+					page_ref = page;
+					$(".mainbox").scrollTop(0);
+					$(".mainbox-content").html(pagedata[page - 1]["text"]);
+
+					if(pagedata[page - 1]["text"].indexOf("vertical-rl") != -1){
+						$(".maintext").css("height", "98%");
+						$(".mainbox").scrollLeft("1000000");
+					}
+
+				}
+				else{
+					alert("無効なページ番号です。");
+					$("#page").val(page_ref);
+				}
+			}
+
+		}
+
+		// ページの左右めくりによるページ操作
+		function changePageLeft() {
+			var next_page = parseInt($("#page").val()) - parseInt(open_dir);
+			if(0 < next_page && next_page <= pagedata.length){
+				$("#page").val(next_page);
+				changePage();
+			}
+		}
+		function changePageRight() {
+			var next_page = parseInt($("#page").val()) + parseInt(open_dir);
+			if(0 < next_page && next_page <= pagedata.length){
+				$("#page").val(next_page);
+				changePage();
+			}
+		}
+
+		// ページ遷移時に現在読み進めたところまでページ情報を保存する
+		$(window).on('beforeunload', function() {
+
+			// ローカルストレージから書籍一覧を読み取り
+			const loadBooksStr = localStorage.getItem('books');
+			var books;
+			if(loadBooksStr == null){
+				books = [];
+			}
+			else {
+				books = JSON.parse(loadBooksStr);
+			}
+
+			// 現在ページの変更
+			const indStr = sessionStorage.getItem('disp_book_index');
+			if(indStr != null) {
+				disp_book['page'] = page_ref;
+				books[parseInt(indStr)] = disp_book;
+
+				// リロードの場合でもページ情報を残せるよう、セッションストレージも更新
+				const disp_bookStr = JSON.stringify(disp_book);
+				sessionStorage.setItem('disp_book', disp_bookStr);
+
+				// booksに追加し、ローカルストレージに保存
+				const storeBooksStr = JSON.stringify(books);
+				localStorage.setItem('books', storeBooksStr);
+			}
+			else {
+				alert("保存書籍が見つかりません。");
+			}
+
+		});
+
+		$(function(){
+
+			const bdStr = sessionStorage.getItem('disp_book');
+			if(bdStr != null) {
+				disp_book = JSON.parse(bdStr);
+				pagedata = disp_book['pagedata'];
+				page_ref = disp_book['page'];
+			}
+			else {
+				alert("書籍データが見つかりませんでした。")
+			}
+
+			if(pagedata != null){
+				$(".mainbox").removeAttr("style");
+				$(".mainbox-content").html(pagedata[page_ref - 1]["text"]);
+				$(".sidebox_left").addClass("page_left");
+				$(".sidebox_right").addClass("page_right");
+
+				if(pagedata[page_ref - 1]["text"].indexOf("vertical-rl") != -1){
+					$(".maintext").css("height", "98%");
+					$(".mainbox").scrollLeft("1000000");
+				}
+
+				// page_controlを追加
+				$(".page_control").html(
+						"<span></span>"
+						+ "<span class=\"page_leftend\"><font color=\"white\">＜＜</font></span>&emsp;"
+						+ "<span class=\"page_left\"><font color=\"white\">＜</font></span>&emsp;"
+						+ "<span><input type=\"number\" id=\"page\" value=\"" + page_ref + "\" min=\"1\" max=\"" + pagedata.length + "\" step=\"1\">/" + pagedata.length + "ページ</span>"
+						+ "&emsp;<span class=\"page_right\"><font color=\"white\">＞</font></span>"
+						+ "&emsp;<span class=\"page_rightend\"><font color=\"white\">＞＞</font></span>"
+						+ "&emsp;<span><input type=\"checkbox\" id=\"open_dir\">右開き</span>"
+				);
+
+				// ヘッダにtitleを追加
+				$(".title").html("<h2 style='margin: 0; padding: 0; overflow-y: hidden;'>「" + disp_book['title'] + "」</h2>"
+				+ "<h3 style='margin: 0; overflow-y: hidden;'>" + disp_book['author'] + "</h3>");
+
+			}
+			else {
+				alert("表示可能なページがありません。");
+			}
+
+			// ページ番号変更によるページ操作
+			$(document).on('input', '#page', function(e) {
+				changePage();
+			});
+
+			// ページの左右クリックによるページ操作
+			$(document).on('click', '.page_left', function(e) {
+				changePageLeft();
+			});
+			$(document).on('click', '.page_right', function(e) {
+				changePageRight();
+			});
+
+			// キーボードによる左右めくり
+			// ただし、.mainbox-contentに"mode: vertical-rl;"が含まれる場合は禁止
+			$(document).on('keydown', function(e){
+				if(pagedata[page_ref - 1]["text"].indexOf("vertical-rl") == -1){
+					switch(e.key) {
+					case 'ArrowRight':
+						changePageRight();
+						break;
+					case 'ArrowLeft':
+						changePageLeft();
+						break;
+					}
+				}
+			});
+
+			// 端ページまで移動
+			$(document).on('click', '.page_leftend', function(e) {
+				var next_page;
+				if(open_dir == 1){
+					next_page = 1;
+				}
+				else{
+					next_page = pagedata.length;
+				}
+				$("#page").val(next_page);
+				changePage();
+			});
+			$(document).on('click', '.page_rightend', function(e) {
+				var next_page;
+				if(open_dir == 1){
+					next_page = pagedata.length;
+				}
+				else{
+					next_page = 1;
+				}
+				$("#page").val(next_page);
+				changePage();
+			});
+
+			// 右開きチェックボックス
+			$(document).on('change', '#open_dir', function(e) {
+
+				if($(this).prop('checked')){
+					open_dir = -1;
+				}
+				else{
+					open_dir = 1;
+				}
+
+			});
+
+
+			$(window).on('mousemove', function(e) {
+
+				// 画面上部50pxにカーソルがあるとき、ヘッダを表示
+				if(e.clientY <= 50 && $(".header").hasClass('header_down') == false) {
+					$(".header").css({top: '-100px'});
+					$(".header").addClass('header_down');
+					$(".header").animate({top: 0},400);
+				}
+
+				// 画面上部100pxにカーソルがないとき、ヘッダを非表示
+				else if(e.clientY >= 100 && $(".header").hasClass('header_down') == true){
+					$(".header").animate({top: '-100px'},400);
+					$(".header").removeClass('header_down');
+				}
+
+			});
+
+		});
+
+		</script>
+	</head>
+	<body>
+		<div class="whole">
+			<!-- <div class="load" align="center"><span>読み込み中・・・</span></div>  -->
+			<table class="header">
+				<tr>
+					<td width="15px"><a href="./bookshelf.html">＜戻る</a></td>
+					<td width="80vw" class="title"></td>
+					<td width="15px">&nbsp;</td>
+				</tr>
+			</table>
+			<div class="viewer">
+				<div class="sidebox sidebox_left"></div>
+				<div class="mainbox" style="background-color:Gainsboro">
+					<div class="mainbox-content">書籍データの読み込み中です。</div>
+				</div>
+				<div class="sidebox sidebox_right"></div>
+			</div>
+			<div class="page_control">
+				&emsp;
+			</div>
+		</div>
+	</body>
+</html>

@@ -1,0 +1,567 @@
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<title>Bookshelf</title>
+		<style type="text/css">
+			.whole {
+				display: flex;
+				flex-flow: column;
+				flex-wrap: nowrap;
+				justify-content: center;
+			}
+			.viewer{
+				display: flex;
+				height: calc(95vh - 40px);
+				flex-wrap: nowrap;
+			}
+			.mainbox {
+				width: 90vw;
+				/* padding: 10px;*/
+				border-top: 3px solid black;
+				border-bottom: 3px solid black;
+				background: repeat url("../img/bookshelf.png");
+				background-attachment: local;
+				overflow-y: auto;
+			}
+			.shelfstep {
+				padding: 28px 0 14px;
+				display: flex;
+				flex-direction: row;
+				justify-content: space-around;
+			}
+			.shelfstep > div {
+				width: 100px;
+				height: 140px;
+				background-color: white;
+				border: 2px solid black;
+				position: relative;
+			}
+			.shelfstep > div:hover {
+				cursor: pointer;
+			}
+			.shelfstep img {
+				max-width: 100%;
+				max-height: 100%;
+				object-fit: contain;
+			}
+			.sidebox {
+				background-color: #404040;
+				width: 5vw;
+				padding: 10px;
+				border: 3px solid black;
+			}
+			.file {
+				justify-content: center;
+				align-items: center;
+				background-color: grey;
+				border: 3px solid black;
+				border-top: none;
+				text-align:center;
+				padding:10px 0;
+			}
+			.delicon {
+				position: absolute;
+				top: -10px;
+				left: -10px;
+				z-index: 3;
+				width: 30px;
+				opacity: 0;
+			}
+		</style>
+		<script type="text/javascript" src="../js/zip.js" charset="utf-8"></script>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+		<script type="text/javascript">
+
+		/*
+		 * EPUBファイルの読み取りにはこちらのスクリプトを利用しています。
+		 *
+		 * zip.js
+		 * https://gildas-lormeau.github.io/zip.js/
+		*/
+
+		var textdata = {};
+		var pagedata = [];
+		var cssdata = {};
+		var imgdata = {};
+		var open_dir = 1;
+		var page_ref = 1;
+		var count = 0;
+
+		var thumbnail = "";
+
+		// ページ操作
+		function changePage() {
+
+			const page = $("#page").val();
+			if(page != ""){
+				if(0 < page && page <= pagedata.length){
+					// 表示テキストの書き換え
+					page_ref = page;
+					$(".mainbox").scrollTop(0);
+					$(".mainbox").html(pagedata[page - 1]["text"]);
+				}
+				else{
+					alert("無効なページ番号です。");
+					$("#page").val(page_ref);
+				}
+			}
+
+		}
+
+		var folder;
+		var file_list = [];
+		var books;
+
+		// ローカルストレージから書籍一覧を読み取っておく
+		const loadBooksStr = localStorage.getItem('books');
+		if(loadBooksStr == null){
+			books = [];
+		}
+		else {
+			books = JSON.parse(loadBooksStr);
+		}
+
+		// 書籍クリック時の挙動
+		function clickBook(count) {
+
+			if($("#edit").length) {
+				sessionStorage.setItem("disp_book", JSON.stringify(books[count]));
+				sessionStorage.setItem("disp_book_index", count);
+				window.location.href = "viewer.html";
+			}
+
+		}
+
+		// 書籍削除時の挙動
+		function deleteBook(count) {
+
+			if(window.confirm("書籍「" + books[count]["title"] + "」を削除してもよろしいですか？")){
+				books.splice(count, 1);
+				const storeBooksStr = JSON.stringify(books);
+				localStorage.removeItem('books');
+				localStorage.setItem('books', storeBooksStr);
+				loadBook();
+				$(".delicon").css("opacity", 1);
+			}
+
+		}
+
+		// 表示する書籍データの読み込み
+		function loadBook() {
+
+			var book_align = "";
+			var box_h = $('.mainbox').height();
+			var box_w = $('.mainbox').width();
+
+			// books.lengthのぶんだけオブジェクト作成を繰り返す
+			count = 0;
+			const disp = $("#edit").val() == "編集" ? "none;" : "block;";
+			bookobj: for(var i = 0; i < (box_h / 186) || count < books.length; i++){
+
+				if(count >= books.length) {
+					break bookobj;
+				}
+
+				book_align += "<div class='shelfstep'>";
+				for(var j = 0; j < (box_w / 200) && count < books.length; j++) {
+					book_align += "<div onclick=\"clickBook(" + count + ");\">"
+					+ "<img onclick=\"deleteBook(" + count + ");\" class=\"delicon\" src=\"../img/delicon.png\" style=\"display:" + disp + "\">"
+					+ "<img src=\"" + books[count]["thumbnail"] + "\" alt=\"" + books[count]["title"] + "\" width=\"100%\" height=\"100%\"></div>";
+					count++;
+				}
+				book_align += "</div>";
+			}
+
+			$(".mainbox").html(book_align);
+
+		}
+
+		$(function() {
+
+			// 「EPUB表示」クリックで起動
+			$("#viewEPUB").click(async function(){
+
+				if($("#myFile")[0] != null && $("#myFile")[0].files[0] != null) {
+
+					// HTMLのファイルインプットから読み取り
+					var fileData = $("#myFile")[0].files[0];
+
+					//
+					if(fileData.name.endsWith(".epub")){
+
+						// ファイルからEPUBをZipReaderで読み込むためのBlobReaderを作成
+						const reader = new zip.ZipReader(new zip.BlobReader(fileData));
+
+						// storageの確認用
+						try {
+
+							// EPUB内のエントリを取得
+							const entries = await reader.getEntries();
+
+							// エントリが存在するなら
+							if (entries.length) {
+
+								textdata = [];
+								pagedata = [];
+								cssdata = {};
+								imgdata = {};
+								open_dir = 1;
+								page_ref = 1;
+
+								var title = "";
+								var author = "";
+								var thumbnail = "";
+
+								// content.opfが存在するなら先に読み込む
+								// もっといい方法がありそうだがまずは愚直に
+								for(var i = 0; i < entries.length; i++) {
+
+									var fname = entries[i].filename;
+									var text;
+
+									if(fname.match(/^.*content\.opf$/)) {
+
+										text = await entries[i].getData(
+											// writer
+											new zip.TextWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													// onprogress callback
+												}
+											}
+										);
+
+										// 書籍タイトルの読み取り
+										title = text.match(/(?<=<dc:title.*?>)[\s\S]*?(?=<\/dc:title>)/gm)[0];
+
+										// 書籍著者の読み取り
+										author = text.match(/(?<=<dc:creator.*?>)[\s\S]*?(?=<\/dc:creator>)/gm)[0];
+
+										// ページ順、そのid対応を配列に格納
+										var page_order = text.replace(/(\r?\n|\t)/g, '').match(/(?<=<spine.*?>)[\s\S]*?(?=<\/spine>)/)[0].split(/\s*?(<itemref[\s\S]*?>)\s*?/).filter(x => !(/^\s*$/).test(x));
+										var manifest = text.replace(/(\r?\n|\t)/g, '').match(/(?<=<manifest.*?>)[\s\S]*?(?=<\/manifest>)/)[0].split(/\s*?(<item [\s\S]*?>)\s*?/).filter(x => !(/^\s*$/).test(x));
+
+										var id_name_table = {};
+
+										for(var m of manifest){
+
+											if((/^<item .*?\/>$/).test(m)) {
+
+												var name = m.match(/(?<=<item.*?href=.*?[\/\"])[^\/]*?(?=\".*?\/>)/)[0];
+												var id = m.match(/(?<=<item.*?id=\")[^\/]*?(?=\".*?\/>)/)[0];
+
+												id_name_table[id] = name;
+
+											}
+
+										}
+
+										for(var j = 0; j < page_order.length; j++){
+
+											if((/^<itemref.*?\/>$/).test(page_order[j])) {
+
+												pagedata.push({});
+												var id = page_order[j].match(/(?<=<itemref idref=\")[^\/]*?(?=\".*?\/>)/)[0];
+												pagedata[j]["id"] = id;
+												pagedata[j]["name"] = id_name_table[id];
+
+											}
+
+										}
+
+									}
+
+								}
+
+								// エントリをファイルの種類ごとにオブジェクトに格納
+								textdata = {};
+								for(var i = 0; i < entries.length; i++) {
+
+									var fname = entries[i].filename;
+									var text;
+
+									// XHTMLファイルの場合、書籍として準備
+									if(fname.match(/^(.*\.(xhtml|html))$/)) {
+
+										// get first entry content as text by using a TextWriter
+										text = await entries[i].getData(
+											// writer
+											new zip.TextWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													 // onprogress callback
+												}
+											}
+										);
+
+										// bodyタグの書き換え
+										while((/<body.*?>/gm).test(text)) {
+											text = text.replace(/<body(.*?)>/gm,"<div class=\"maintext\"$1>");
+										}
+
+										// text contains the entry data as a String
+										// $("#result").append(text);
+										fname = fname.replace(/.*\/(.+?\.(xhtml|html)).*/, "$1");
+										textdata[fname] = text;
+
+									}
+
+									// CSSファイルの場合
+									else if(fname.endsWith(".css")) {
+										// get first entry content as text by using a TextWriter
+										text = await entries[i].getData(
+											// writer
+											new zip.TextWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													 // onprogress callback
+												}
+											}
+										);
+
+										// CSS内コメントアウトをhtmlに統一
+										text = text.replace(/\/\*/g,"<!--").replace(/\*\//g,"-->");
+
+										// CSSを「.mainbox-content」の子要素に変更
+										text = text.replace(/(?<=(\A|})[^{]*?)(\s)([^\s].*?[,{])/gm, "$2.mainbox-content $3");
+
+										while((/(?<=(^|})[^{]*?)(html|body)/gm).test(text)) {
+											text = text.replace(/(?<=(^|})[^{]*?)(html|body)/gm,".maintext");
+										}
+
+										// とりあえずパスではなく直近のファイル名のみ取得
+										fname = fname.replace(/.*\/(.+?\.css).*/, "$1");
+										if(fname != "style-check.css"){
+											cssdata[fname] = text;
+										}
+
+									}
+
+									// 画像ファイルの場合、Data64URI形式に変換
+									else if(fname.match(/^(.*\.(jpg|jpeg|png|bmp))$/)) {
+										// get first entry content as text by using a TextWriter
+										text = await entries[i].getData(
+											// writer
+											new zip.Data64URIWriter(),
+											// options
+											{
+												onprogress: (index, max) => {
+													// onprogress callback
+												}
+											}
+										);
+
+										fname = fname.replace(/.*\/(.+?\.(jpg|jpeg|png|bmp)).*/, "$1");
+										imgdata[fname] = text;
+
+									}
+
+
+								}
+
+								// ページデータ順に並べ替える
+								for(var i = 0; i < pagedata.length; i++){
+
+									pagedata[i]["text"] = textdata[pagedata[i]["name"]];
+
+								}
+
+								// 表示のとき、cssの参照を書き換え
+								for(var i = 0; i < pagedata.length; i++){
+
+									while(pagedata[i]["text"].match(/<link .*?href=.*?[\/\"]([^\/]+?\.css).*?>/g) != null) {
+										pagedata[i]["text"] = pagedata[i]["text"].replace(/<link .*?href=.*?[\/\"]([^\/]+?\.css).*?>/, function(all, arg){
+											if(cssdata[arg] != null){
+												return "<style type=\"text/css\">\n" + cssdata[arg] + "</style>";
+											}
+											else{
+												return "";
+											}
+										});
+
+									}
+
+								}
+
+								for(var i = 0; i < pagedata.length; i++){
+
+									while(pagedata[i]["text"].match(/<style type=\"text\/css\">([\s\S]*?)@import .*?[\/\"]([^\/]+?\.css).*?;/gm) != null) {
+										pagedata[i]["text"] = pagedata[i]["text"].replace(/<style type=\"text\/css\">([\s\S]*?)@import .*?[\/\"]([^\/]+?\.css)(.*?);/gm, function(all, arg1, arg2){
+											if(cssdata[arg2] != null){
+												return "<style type=\"text/css\">" + cssdata[arg2] + "</style>\n<style type=\"text/css\">" + arg1;
+											}
+											else{
+												return "</style>\n<style type=\"text/css\">" + arg1;
+											}
+										});
+
+									}
+
+								}
+
+								// 表示のとき、画像の参照を書き換え
+								// 一枚目に取得した画像バイナリを書籍サムネイルとして保持しておく
+
+								var isThumbnail = true;
+
+								for(var i = 0; i < pagedata.length; i++){
+
+									while(pagedata[i]["text"].match(/<img .*?src=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp)).*?>/g) != null) {
+										pagedata[i]["text"] = pagedata[i]["text"].replace(/(<img .*?)src=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp))(.*?>)/, function(all, arg1, arg2, arg3, arg4){
+											if(imgdata[arg2] != null){
+												if(isThumbnail === true){
+													thumbnail = imgdata[arg2];
+													isThumbnail = false;
+												}
+												return arg1 + "src=\"" + imgdata[arg2] + arg4;
+											}
+											else{
+												return "";
+											}
+										});
+									}
+
+									while(pagedata[i]["text"].match(/<image .*?xlink:href=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp)).*?>/g) != null) {
+										pagedata[i]["text"] = pagedata[i]["text"].replace(/(<image .*?)xlink:href=.*?[\/\"]([^\/]+?\.(jpg|jpeg|png|bmp))(.*?>)/, function(all, arg1, arg2, arg3, arg4){
+											if(imgdata[arg2] != null){
+												if(isThumbnail === true){
+													thumbnail = imgdata[arg2];
+													isThumbnail = false;
+												}
+												return arg1 + "xlink:href=\"" + imgdata[arg2] + arg4;
+											}
+											else{
+												return "";
+											}
+										});
+									}
+
+								}
+
+								// リンクの書き換え
+								for(var i = 0; i < pagedata.length; i++){
+
+									while(pagedata[i]["text"].match(/<a ((?!onclick).)*?href=((?!onclick).)*?[\/\"]([^\/]+?\.(xhtml|html))((?!onclick).)*?>[(?!onclick)\s\S]*?<\/a>/g) != null) {
+										pagedata[i]["text"] = pagedata[i]["text"].replace(/(<a ((?!onclick).)*?href=((?!onclick).)*?[\/\"])([^\/]+?\.(xhtml|html))((?!onclick).)*?\"(((?!onclick).)*?>[(?!onclick)\s\S]*?<\/a>)/,
+												function(all, arg1, arg2, arg3, arg4, arg5, arg6, arg7){
+											const pagenum = pagedata.findIndex(x => x["name"] == arg4);
+											if(pagenum >= 0){
+												return arg1 + "javascript:void(0);\" onclick=\"\$(\'#page\').val(" + (pagenum + 1) + "); changePage(); return false;\"" + arg7;
+											}
+											else{
+												return "";
+											}
+										});
+									}
+
+								}
+
+								if(pagedata != null){
+
+									// ビュアーに渡す書籍情報を作成
+									disp_book = {};
+									disp_book['title'] = title;
+									disp_book['author'] = author;
+									disp_book['pagedata'] = pagedata;
+									disp_book['thumbnail'] = thumbnail;
+									disp_book['page'] = 1;
+
+									// booksに追加し、ローカルストレージに保存
+									books.push(disp_book);
+									const storeBooksStr = JSON.stringify(books);
+									localStorage.setItem('books', storeBooksStr);
+
+									// console.log(disp_book);
+
+									// // セッションに情報を渡す
+									// const bdStr = JSON.stringify(disp_book);
+									// sessionStorage.setItem('disp_book', bdStr);
+									// sessionStorage.setItem('disp_book_index', books.length - 1);
+
+									// // ページ遷移
+									// window.location.href = 'viewer.html';
+
+									// 本棚のリロード
+									loadBook();
+
+								}
+								else {
+									alert("表示可能なページがありません。");
+								}
+
+							}
+
+						}catch(e){
+							if((/^QuotaExceededError.*?$/).test(e)) {
+								alert("ストレージがいっぱいです。\n書籍を削除してストレージを確保してください。");
+							}
+							else {
+								alert("書籍読み取り時にエラーが発生しました：\n" + e);
+							}
+						}finally{
+							// ZipReaderのクローズ
+							await reader.close();
+						}
+
+					}
+					else {
+						alert(".epub形式のファイルを選択してください。");
+					}
+
+				}
+				else {
+					alert("ファイルが存在しません。");
+				}
+
+				$(".delicon").animate({opacity: 0}, 200, function(){
+					$(".delicon").attr("style", "display: none");
+				});
+				$("#end_edit").val("編集");
+				$("#end_edit").attr("id", "edit");
+
+			});
+
+			$(document).on('click', '#edit', function(e) {
+				$(".delicon").attr("style", "display: block");
+				$(".delicon").animate({opacity: 1}, 200);
+				$("#edit").val("編集完了");
+				$("#edit").attr("id", "end_edit");
+			});
+
+			$(document).on('click', '#end_edit', function(e) {
+				$(".delicon").animate({opacity: 0}, 200, function(){
+					$(".delicon").attr("style", "display: none");
+				});
+				$("#end_edit").val("編集");
+				$("#end_edit").attr("id", "edit");
+			});
+
+
+		});
+
+		$(window).on('load resize', function() {
+			loadBook()
+		});
+
+		</script>
+	</head>
+	<body>
+		<div class="whole">
+			<div class="viewer">
+				<div class="sidebox sidebox_left"></div>
+				<div class="mainbox"></div>
+				<div class="sidebox sidebox_right"></div>
+			</div>
+			<div class="file">
+				<form action="./test.cgi" method="get" style="margin:0px;">
+					<input type="file" id="myFile" accept=".epub"/>
+					<input type="button" id="viewEPUB" value="追加登録" />
+					<input type="button" id="edit" value="編集" />
+				</form>
+			</div>
+		</div>
+	</body>
+</html>
